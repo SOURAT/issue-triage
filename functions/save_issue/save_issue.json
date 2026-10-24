@@ -1,0 +1,19 @@
+{
+  "name": "save_issue",
+  "description": "Save a triaged GitHub issue and the person's decision to the issues table.",
+  "code": {"$file": "code.py"},
+  "visibility": "POD",
+  "permissions": {
+    "grants": [
+      {
+        "resource_type": "datastore_table",
+        "resource_name": "issues",
+        "permission_ids": [
+          "datastore.table.read",
+          "datastore.record.read",
+          "datastore.record.write"
+        ]
+      }
+    ]
+  }
+}

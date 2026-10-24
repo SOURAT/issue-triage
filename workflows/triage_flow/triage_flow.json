@@ -1,0 +1,89 @@
+{
+  "name": "triage_flow",
+  "description": "Paste a new GitHub issue, let the agent triage it, then a person approves or skips the drafted reply.",
+  "start": {"type": "MANUAL"},
+  "run_title": ["intake.issue_number", "intake.title"],
+  "nodes": [
+    {
+      "id": "intake",
+      "type": "FORM",
+      "label": "New issue",
+      "config": {
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "issue_number": {"type": "integer", "title": "Issue number"},
+            "title": {"type": "string", "title": "Title"},
+            "body": {"type": "string", "title": "Description"},
+            "author": {"type": "string", "title": "Author (GitHub username)"}
+          },
+          "required": ["issue_number", "title"]
+        },
+        "ui_schema": {
+          "ui:order": ["issue_number", "title", "author", "body"],
+          "body": {"ui:widget": "textarea"}
+        }
+      }
+    },
+    {
+      "id": "triage",
+      "type": "AGENT",
+      "label": "Triage issue",
+      "config": {
+        "agent_name": "triage_agent",
+        "input_mapping": {
+          "issue_number": {"type": "expression", "value": "intake.issue_number"},
+          "title": {"type": "expression", "value": "intake.title"},
+          "body": {"type": "expression", "value": "intake.body", "optional": true},
+          "author": {"type": "expression", "value": "intake.author", "optional": true}
+        }
+      }
+    },
+    {
+      "id": "review",
+      "type": "FORM",
+      "label": "Approve reply",
+      "config": {
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "approved": {"type": "boolean", "title": "Approve this reply?"},
+            "reply": {"type": "string", "title": "Reply (edit if needed)"}
+          },
+          "required": ["approved"]
+        },
+        "ui_schema": {
+          "ui:order": ["approved", "reply"],
+          "reply": {"ui:widget": "textarea"}
+        }
+      }
+    },
+    {
+      "id": "save",
+      "type": "FUNCTION",
+      "label": "Save result",
+      "config": {
+        "function_name": "save_issue",
+        "input_mapping": {
+          "issue_number": {"type": "expression", "value": "intake.issue_number"},
+          "title": {"type": "expression", "value": "intake.title"},
+          "body": {"type": "expression", "value": "intake.body", "optional": true},
+          "author": {"type": "expression", "value": "intake.author", "optional": true},
+          "category": {"type": "expression", "value": "triage.category"},
+          "priority": {"type": "expression", "value": "triage.priority"},
+          "duplicate_of": {"type": "expression", "value": "triage.duplicate_of"},
+          "summary": {"type": "expression", "value": "triage.summary"},
+          "reply": {"type": "expression", "value": "review.reply || triage.draft_reply"},
+          "approved": {"type": "expression", "value": "review.approved"}
+        }
+      }
+    },
+    {"id": "end", "type": "END", "label": "Done"}
+  ],
+  "edges": [
+    {"id": "e1", "source": "intake", "target": "triage"},
+    {"id": "e2", "source": "triage", "target": "review"},
+    {"id": "e3", "source": "review", "target": "save"},
+    {"id": "e4", "source": "save", "target": "end"}
+  ]
+}

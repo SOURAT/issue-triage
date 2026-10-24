@@ -1,0 +1,6 @@
+{
+  "name": "Issue Triage",
+  "description": "Helps open-source maintainers sort new GitHub issues: labels them, spots duplicates, drafts a reply for missing details, and waits for a person to approve.",
+  "format_version": 2,
+  "variables": {}
+}

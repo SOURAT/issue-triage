@@ -1,0 +1,38 @@
+{
+  "name": "triage_agent",
+  "description": "Labels a new GitHub issue, finds duplicates, and drafts a reply for a person to approve.",
+  "instruction": {"$file": "instruction.md"},
+  "toolsets": ["POD"],
+  "visibility": "POD",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "issue_number": {"type": "integer"},
+      "title": {"type": "string"},
+      "body": {"type": "string"},
+      "author": {"type": "string"}
+    },
+    "required": ["issue_number", "title"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "category": {"type": "string", "enum": ["bug", "feature", "question", "docs", "other"]},
+      "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+      "duplicate_of": {"type": "integer"},
+      "missing_info": {"type": "string"},
+      "summary": {"type": "string"},
+      "draft_reply": {"type": "string"}
+    },
+    "required": ["category", "priority", "duplicate_of", "summary", "draft_reply"]
+  },
+  "permissions": {
+    "grants": [
+      {
+        "resource_type": "datastore_table",
+        "resource_name": "issues",
+        "permission_ids": ["datastore.table.read", "datastore.record.read"]
+      }
+    ]
+  }
+}
