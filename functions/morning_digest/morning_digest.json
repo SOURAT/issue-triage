@@ -1,0 +1,20 @@
+{
+  "name": "morning_digest",
+  "description": "Count the triaged issues and save a short morning report to the digests table.",
+  "code": {"$file": "code.py"},
+  "visibility": "POD",
+  "permissions": {
+    "grants": [
+      {
+        "resource_type": "datastore_table",
+        "resource_name": "issues",
+        "permission_ids": ["datastore.table.read", "datastore.record.read"]
+      },
+      {
+        "resource_type": "datastore_table",
+        "resource_name": "digests",
+        "permission_ids": ["datastore.table.read", "datastore.record.read", "datastore.record.write"]
+      }
+    ]
+  }
+}

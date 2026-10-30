@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Triage Board</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f7f6f2; --card:#ffffff; --ink:#161513; --muted:#6b675f; --line:#e3e0d8; --accent:#1f7a5c; --warn:#b4540a; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141412; --card:#1e1d1a; --ink:#f1efe8; --muted:#a29e94; --line:#33312c; --accent:#47c29a; --warn:#f0a24d; --bad:#f2837c; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:18px; margin:0; }
+  nav { display:flex; gap:6px; }
+  nav button { background:none; border:1px solid var(--line); color:var(--ink); padding:6px 12px; border-radius:8px; cursor:pointer; font:inherit; }
+  nav button[aria-selected="true"] { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+  main { display:grid; grid-template-columns:minmax(240px,320px) 1fr; gap:16px; padding:16px 20px; }
+  @media (max-width: 760px) { main { grid-template-columns:1fr; } }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .item { display:block; width:100%; text-align:left; background:none; border:0; border-bottom:1px solid var(--line); padding:10px 4px; color:inherit; font:inherit; cursor:pointer; }
+  .item:last-child { border-bottom:0; }
+  .item[aria-current="true"] { background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .muted { color:var(--muted); font-size:13px; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:999px; border:1px solid var(--line); font-size:12px; margin-right:4px; }
+  .tag.urgent, .tag.high { color:var(--bad); border-color:var(--bad); }
+  .tag.normal { color:var(--warn); border-color:var(--warn); }
+  .tag.dup { color:var(--warn); border-color:var(--warn); }
+  textarea { width:100%; min-height:150px; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink); font:inherit; }
+  .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .btn { padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:none; color:var(--ink); cursor:pointer; font:inherit; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  pre { white-space:pre-wrap; word-break:break-word; margin:6px 0; font:inherit; }
+  .empty, .err { padding:24px 8px; text-align:center; color:var(--muted); }
+  .err { color:var(--bad); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin:10px 0; }
+  .stat { border:1px solid var(--line); border-radius:10px; padding:10px; }
+  .stat b { display:block; font-size:22px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Triage Board</h1>
+  <nav role="tablist">
+    <button role="tab" data-tab="review" aria-selected="true">To review</button>
+    <button role="tab" data-tab="post" aria-selected="false">Approved</button>
+    <button role="tab" data-tab="digest" aria-selected="false">Morning digest</button>
+  </nav>
+  <span class="muted" id="who"></span>
+</header>
+<main>
+  <section class="panel" id="list" aria-label="List"></section>
+  <section class="panel" id="detail" aria-label="Detail"></section>
+</main>
+
+<script>
+(function () {
+  var cfg = window.__LEMMA_CONFIG__ || {};
+  var base = (cfg.apiUrl || window.location.origin).replace(/\/$/, "");
+  var s = document.createElement("script");
+  s.src = base + "/public/sdk/lemma-client.js";
+  s.onload = boot;
+  s.onerror = function () { showError(document.getElementById("list"), "Could not load the Lemma SDK."); };
+  document.head.appendChild(s);
+})();
+
+var client, tab = "review", selected = null;
+var $list = document.getElementById("list"), $detail = document.getElementById("detail");
+
+function el(tag, props, children) {
+  var n = document.createElement(tag);
+  Object.keys(props || {}).forEach(function (k) {
+    if (k === "text") n.textContent = props[k];
+    else if (k === "class") n.className = props[k];
+    else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), props[k]);
+    else n.setAttribute(k, props[k]);
+  });
+  (children || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+function showError(n, msg) { clear(n); n.appendChild(el("div", { class: "err", text: msg })); }
+function showEmpty(n, msg) { clear(n); n.appendChild(el("div", { class: "empty", text: msg })); }
+function field(row) { return (row && row.data) ? row.data : row; }
+
+async function boot() {
+  try {
+    client = new window.LemmaClient.LemmaClient();
+    var state = await client.initialize();
+    if (state.status !== "authenticated") { client.auth.redirectToAuth(); return; }
+    if (state.user && state.user.email) document.getElementById("who").textContent = state.user.email;
+    document.querySelectorAll("nav button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        tab = b.getAttribute("data-tab");
+        selected = null;
+        document.querySelectorAll("nav button").forEach(function (x) { x.setAttribute("aria-selected", String(x === b)); });
+        render();
+      });
+    });
+    render();
+  } catch (e) { showError($list, "Could not start: " + (e && e.message ? e.message : e)); }
+}
+
+function render() {
+  clear($detail);
+  $detail.appendChild(el("div", { class: "empty", text: "Pick an item from the list." }));
+  if (tab === "review") return renderReview();
+  if (tab === "post") return renderPost();
+  return renderDigest();
+}
+
+/* ---------- To review: runs waiting for a person ---------- */
+function issueOf(ctx) {
+  ctx = ctx || {};
+  if (ctx.intake) return ctx.intake;
+  var p = ctx.start && ctx.start.payload && ctx.start.payload.issue;
+  if (p) return { issue_number: p.number, title: p.title, body: p.body, author: p.user && p.user.login };
+  return {};
+}
+
+async function renderReview() {
+  showEmpty($list, "Loading...");
+  try {
+    var res = await client.workflows.runs.listInPod({ status: ["WAITING"], limit: 50 });
+    var runs = (res.items || []).filter(function (r) { return r.waiting_on && r.waiting_on.node_id === "review"; });
+    if (!runs.length) return showEmpty($list, "Nothing waiting. New issues will appear here.");
+    clear($list);
+    runs.forEach(function (r) {
+      $list.appendChild(el("button", { class: "item", "data-id": r.id, onclick: function () { openRun(r.id); } }, [
+        el("div", { text: r.title || "Untitled issue" }),
+        el("div", { class: "muted", text: "Waiting for your review" })
+      ]));
+    });
+  } catch (e) { showError($list, "Could not load: " + (e && e.message ? e.message : e)); }
+}
+
+async function openRun(runId) {
+  selected = runId;
+  document.querySelectorAll("#list .item").forEach(function (b) { b.setAttribute("aria-current", String(b.getAttribute("data-id") === runId)); });
+  showEmpty($detail, "Loading...");
+  try {
+    var run = await client.workflows.runs.get(runId);
+    var ctx = run.execution_context || {}, issue = issueOf(ctx), t = ctx.triage || {};
+    var wait = run.active_wait;
+    clear($detail);
+    $detail.appendChild(el("h2", { text: "#" + (issue.issue_number || "?") + " " + (issue.title || "") }));
+    $detail.appendChild(el("div", { class: "muted", text: "Reported by " + (issue.author || "unknown") }));
+    $detail.appendChild(el("pre", { text: issue.body || "(no description)" }));
+    var tags = el("div", {}, [
+      el("span", { class: "tag", text: t.category || "uncategorized" }),
+      el("span", { class: "tag " + (t.priority || ""), text: "priority: " + (t.priority || "?") }),
+      (t.duplicate_of ? el("span", { class: "tag dup", text: "possible duplicate of #" + t.duplicate_of }) : null)
+    ]);
+    $detail.appendChild(tags);
+    $detail.appendChild(el("p", { text: t.summary || "" }));
+    if (t.missing_info) $detail.appendChild(el("p", { class: "muted", text: "Missing: " + t.missing_info }));
+    $detail.appendChild(el("h3", { text: "Drafted reply (edit if needed)" }));
+    var box = el("textarea", { "aria-label": "Reply" });
+    box.value = t.draft_reply || "";
+    $detail.appendChild(box);
+    var msg = el("div", { class: "muted", text: "Nothing is posted to GitHub from here." });
+    var approve = el("button", { class: "btn primary", text: "Approve reply" });
+    var skip = el("button", { class: "btn", text: "Skip" });
+    function submit(ok) {
+      return async function () {
+        approve.disabled = skip.disabled = true;
+        try {
+          await client.workflows.runs.submitForm(runId, { node_id: wait.node_id, inputs: { approved: ok, reply: box.value } });
+          msg.textContent = ok ? "Approved and saved." : "Skipped and saved.";
+          setTimeout(renderReview, 1200);
+        } catch (e) { approve.disabled = skip.disabled = false; msg.textContent = "Could not submit: " + (e && e.message ? e.message : e); }
+      };
+    }
+    approve.addEventListener("click", submit(true));
+    skip.addEventListener("click", submit(false));
+    $detail.appendChild(el("div", { class: "row" }, [approve, skip]));
+    $detail.appendChild(msg);
+  } catch (e) { showError($detail, "Could not open: " + (e && e.message ? e.message : e)); }
+}
+
+/* ---------- Approved: replies ready to post by hand ---------- */
+async function renderPost() {
+  showEmpty($list, "Loading...");
+  try {
+    var res = await client.records.list("issues", { limit: 200 });
+    var rows = (res.items || []).map(function (r) { var f = field(r); f._id = r.id || f.id; return f; })
+      .filter(function (r) { return r.status === "READY_TO_POST"; });
+    if (!rows.length) return showEmpty($list, "No approved replies waiting.");
+    clear($list);
+    rows.forEach(function (r) {
+      $list.appendChild(el("button", { class: "item", "data-id": r._id, onclick: function () { openPost(r); } }, [
+        el("div", { text: "#" + r.issue_number + " " + r.title }),
+        el("div", { class: "muted", text: (r.category || "") + " / " + (r.priority || "") })
+      ]));
+    });
+  } catch (e) { showError($list, "Could not load: " + (e && e.message ? e.message : e)); }
+}
+
+function openPost(r) {
+  document.querySelectorAll("#list .item").forEach(function (b) { b.setAttribute("aria-current", String(b.getAttribute("data-id") === r._id)); });
+  clear($detail);
+  $detail.appendChild(el("h2", { text: "#" + r.issue_number + " " + r.title }));
+  $detail.appendChild(el("div", { class: "muted", text: "Reported by " + (r.author || "unknown") }));
+  $detail.appendChild(el("p", { text: r.summary || "" }));
+  $detail.appendChild(el("h3", { text: "Approved reply" }));
+  $detail.appendChild(el("pre", { text: r.reply || "" }));
+  var msg = el("div", { class: "muted", text: "Copy the reply to GitHub, then mark it as posted." });
+  var copy = el("button", { class: "btn", text: "Copy reply" });
+  var done = el("button", { class: "btn primary", text: "Mark as posted" });
+  copy.addEventListener("click", function () {
+    if (navigator.clipboard) navigator.clipboard.writeText(r.reply || "").then(function () { msg.textContent = "Copied."; }, function () { msg.textContent = "Select the text and copy it by hand."; });
+    else msg.textContent = "Select the text and copy it by hand.";
+  });
+  done.addEventListener("click", async function () {
+    done.disabled = true;
+    try { await client.records.update("issues", r._id, { status: "POSTED" }); msg.textContent = "Marked as posted."; setTimeout(renderPost, 900); }
+    catch (e) { done.disabled = false; msg.textContent = "Could not update: " + (e && e.message ? e.message : e); }
+  });
+  $detail.appendChild(el("div", { class: "row" }, [copy, done]));
+  $detail.appendChild(msg);
+}
+
+/* ---------- Morning digest ---------- */
+async function renderDigest() {
+  showEmpty($list, "Loading...");
+  try {
+    var res = await client.records.list("digests", { limit: 60 });
+    var rows = (res.items || []).map(field).sort(function (a, b) { return String(b.day).localeCompare(String(a.day)); });
+    if (!rows.length) { showEmpty($list, "No digest yet. It is built every morning."); return; }
+    clear($list);
+    rows.forEach(function (d) {
+      $list.appendChild(el("button", { class: "item", onclick: function () { openDigest(d); } }, [
+        el("div", { text: d.day }), el("div", { class: "muted", text: d.to_post + " to post, " + d.urgent_open + " urgent" })
+      ]));
+    });
+    openDigest(rows[0]);
+  } catch (e) { showError($list, "Could not load: " + (e && e.message ? e.message : e)); }
+}
+
+function openDigest(d) {
+  clear($detail);
+  $detail.appendChild(el("h2", { text: "Digest for " + d.day }));
+  function stat(n, label) { return el("div", { class: "stat" }, [el("b", { text: String(n == null ? 0 : n) }), el("span", { class: "muted", text: label })]); }
+  $detail.appendChild(el("div", { class: "stats" }, [
+    stat(d.total, "triaged"), stat(d.to_post, "replies to post"), stat(d.urgent_open, "urgent or high, open"), stat(d.duplicates, "duplicates")
+  ]));
+  $detail.appendChild(el("p", { text: d.summary || "" }));
+}
+</script>
+</body>
+</html>

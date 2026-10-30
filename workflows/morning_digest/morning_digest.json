@@ -1,0 +1,17 @@
+{
+  "name": "morning_digest",
+  "description": "Builds the morning report: how many issues were triaged, how many replies still need posting, how many urgent ones are open.",
+  "start": {"type": "MANUAL"},
+  "nodes": [
+    {
+      "id": "digest",
+      "type": "FUNCTION",
+      "label": "Build digest",
+      "config": {"function_name": "morning_digest", "input_mapping": {}}
+    },
+    {"id": "end", "type": "END", "label": "Done"}
+  ],
+  "edges": [
+    {"id": "e1", "source": "digest", "target": "end"}
+  ]
+}

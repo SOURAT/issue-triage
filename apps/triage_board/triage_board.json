@@ -1,0 +1,5 @@
+{
+  "name": "triage_board",
+  "description": "The board where people review the agent's triage, approve or skip replies, and read the morning digest.",
+  "visibility": "POD"
+}

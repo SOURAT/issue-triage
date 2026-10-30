@@ -1,0 +1,74 @@
+{
+  "name": "triage_on_issue",
+  "description": "Starts by itself when a new GitHub issue is opened, lets the agent triage it, then a person approves or skips the drafted reply.",
+  "start": {
+    "type": "EVENT",
+    "config": {
+      "connector_id": "github",
+      "connector_trigger_id": "github:http:issues",
+      "trigger_config": {"actions": ["opened"]}
+    }
+  },
+  "run_title": ["start.payload.issue.number", "start.payload.issue.title"],
+  "nodes": [
+    {
+      "id": "triage",
+      "type": "AGENT",
+      "label": "Triage issue",
+      "config": {
+        "agent_name": "triage_agent",
+        "input_mapping": {
+          "issue_number": {"type": "expression", "value": "start.payload.issue.number"},
+          "title": {"type": "expression", "value": "start.payload.issue.title"},
+          "body": {"type": "expression", "value": "start.payload.issue.body", "optional": true},
+          "author": {"type": "expression", "value": "start.payload.issue.user.login", "optional": true}
+        }
+      }
+    },
+    {
+      "id": "review",
+      "type": "FORM",
+      "label": "Approve reply",
+      "config": {
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "approved": {"type": "boolean", "title": "Approve this reply?"},
+            "reply": {"type": "string", "title": "Reply (edit if needed)"}
+          },
+          "required": ["approved"]
+        },
+        "ui_schema": {
+          "ui:order": ["approved", "reply"],
+          "reply": {"ui:widget": "textarea"}
+        }
+      }
+    },
+    {
+      "id": "save",
+      "type": "FUNCTION",
+      "label": "Save result",
+      "config": {
+        "function_name": "save_issue",
+        "input_mapping": {
+          "issue_number": {"type": "expression", "value": "start.payload.issue.number"},
+          "title": {"type": "expression", "value": "start.payload.issue.title"},
+          "body": {"type": "expression", "value": "start.payload.issue.body", "optional": true},
+          "author": {"type": "expression", "value": "start.payload.issue.user.login", "optional": true},
+          "category": {"type": "expression", "value": "triage.category"},
+          "priority": {"type": "expression", "value": "triage.priority"},
+          "duplicate_of": {"type": "expression", "value": "triage.duplicate_of"},
+          "summary": {"type": "expression", "value": "triage.summary"},
+          "reply": {"type": "expression", "value": "review.reply || triage.draft_reply"},
+          "approved": {"type": "expression", "value": "review.approved"}
+        }
+      }
+    },
+    {"id": "end", "type": "END", "label": "Done"}
+  ],
+  "edges": [
+    {"id": "e1", "source": "triage", "target": "review"},
+    {"id": "e2", "source": "review", "target": "save"},
+    {"id": "e3", "source": "save", "target": "end"}
+  ]
+}

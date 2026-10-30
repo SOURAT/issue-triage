@@ -1,0 +1,14 @@
+{
+  "name": "digests",
+  "primary_key_column": "id",
+  "enable_rls": false,
+  "columns": [
+    {"name": "id", "type": "UUID", "required": true, "auto": true},
+    {"name": "day", "type": "TEXT", "required": true},
+    {"name": "total", "type": "INTEGER", "required": false},
+    {"name": "urgent_open", "type": "INTEGER", "required": false},
+    {"name": "to_post", "type": "INTEGER", "required": false},
+    {"name": "duplicates", "type": "INTEGER", "required": false},
+    {"name": "summary", "type": "TEXT", "required": false}
+  ]
+}
